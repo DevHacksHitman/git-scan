@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# Local scan artifacts — findings must never be committed
+scan-report.json
+scan-report.sarif
+audit.jsonl
+
+# Agent harness artifacts
+.playwright-mcp/
+private_docs/
+
+# OS noise
+.DS_Store
+
+# Personal notes
+*.local.md
+*.plan.md
