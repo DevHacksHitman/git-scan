@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
-import hashlib
 import json
 import math
 import re
@@ -86,6 +85,10 @@ ENTROPY_THRESHOLD = 4.5
 _HEX_ONLY = re.compile(r"^[0-9a-fA-F]+$")
 _TOKENISH = re.compile(r"[A-Za-z0-9+/=_\-]{%d,}" % ENTROPY_MIN_LENGTH)
 
+# The active default rule set: regex rules plus the entropy heuristic. Custom
+# rules from --rules are appended to this by load_rules().
+DEFAULT_RULES: Tuple[Rule, ...] = RULES + (ENTROPY_RULE,)
+
 
 @dataclass
 class Finding:
@@ -135,7 +138,7 @@ def shannon_entropy(value: str) -> float:
 
 def load_rules(path: Optional[str] = None) -> List[Rule]:
     """Default rules, plus any extra rules from a JSON file."""
-    rules = list(RULES)
+    rules = list(DEFAULT_RULES)
     if not path:
         return rules
     config = Path(path)
@@ -164,17 +167,26 @@ def load_rules(path: Optional[str] = None) -> List[Rule]:
     return rules
 
 
-def scan_line(line: str) -> List[Tuple[Rule, str]]:
-    """Return (rule, matched text) pairs for one line of content."""
+def scan_line(line: str, rules: Optional[Sequence[Rule]] = None) -> List[Tuple[Rule, str]]:
+    """Return (rule, matched text) pairs for one line of content.
+
+    ``rules`` is the **active** rule set: the defaults plus anything loaded from
+    ``--rules``. Matching only the built-in table made custom rules inert — a
+    real bug caught by the audit.
+    """
+    active = list(DEFAULT_RULES if rules is None else rules)
     hits: List[Tuple[Rule, str]] = []
-    for rule in RULES:
+    for rule in active:
+        if not rule.pattern:
+            continue  # the entropy rule is computed below, not regex-matched
         for match in re.finditer(rule.pattern, line):
             hits.append((rule, match.group(0)))
-    for candidate in _TOKENISH.findall(line):
-        if _HEX_ONLY.match(candidate):
-            continue  # hex digests are usually hashes, not keys
-        if shannon_entropy(candidate) >= ENTROPY_THRESHOLD:
-            hits.append((ENTROPY_RULE, candidate))
+    if ENTROPY_RULE in active:
+        for candidate in _TOKENISH.findall(line):
+            if _HEX_ONLY.match(candidate):
+                continue  # hex digests are usually hashes, not keys
+            if shannon_entropy(candidate) >= ENTROPY_THRESHOLD:
+                hits.append((ENTROPY_RULE, candidate))
     return hits
 
 
@@ -246,8 +258,9 @@ def iter_worktree(repo: Path) -> Iterator[Tuple[Optional[str], str, Optional[int
         if any(part in {".git", "node_modules", "dist", "build", ".venv"} for part in relative.parts):
             continue
         try:
-            if b"\x00" in path.open("rb").read(4096):
-                continue  # binary
+            with path.open("rb") as handle:
+                if b"\x00" in handle.read(4096):
+                    continue  # binary
         except OSError:
             continue
         try:
@@ -291,7 +304,7 @@ def scan(
     for commit, path, number, content in source:
         if is_ignored(path, ignores):
             continue
-        for rule, matched in scan_line(content):
+        for rule, matched in scan_line(content, rules):
             if rule not in rules:
                 continue
             findings.append(
@@ -307,12 +320,22 @@ def sort_findings(findings: Sequence[Finding]) -> List[Finding]:
     )
 
 
+_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def _safe(text: str) -> str:
+    """Neutralise control characters so a crafted filename cannot drive the terminal."""
+    return _CONTROL.sub("?", text)
+
+
 def render_text(findings: Sequence[Finding], source_label: str, limit: int = 100) -> str:
     if not findings:
         return f"PASS — no findings in {source_label}."
     lines = [f"FINDINGS — {len(findings)} in {source_label}", ""]
     for finding in findings[:limit]:
-        location = f"{finding.path}:{finding.line}" if finding.line else finding.path
+        location = (
+            f"{_safe(finding.path)}:{finding.line}" if finding.line else _safe(finding.path)
+        )
         if finding.commit:
             location += f" @{finding.commit[:8]}"
         lines.append(f"  [{finding.severity:>6}] {finding.rule}: {location}")
@@ -395,14 +418,6 @@ def render_sarif(findings: Sequence[Finding], rules: Sequence[Rule]) -> str:
     )
 
 
-def fingerprint(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(65536), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -445,6 +460,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         findings = sort_findings(scan(source, rules, ignores))
     except ScanError as exc:
         print(f"error: {exc}", file=sys.stderr)
+        return 2
+    except Exception as exc:  # noqa: BLE001 - never let a crash look like findings
+        print(f"error: unexpected failure: {exc!r}", file=sys.stderr)
         return 2
 
     if args.format == "json":

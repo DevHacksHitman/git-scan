@@ -98,6 +98,11 @@ class TestRuleDetection(unittest.TestCase):
     def test_entropy_hit(self):
         self.assertIn("high-entropy-string", self.codes(f'value = "{ENTROPY_BLOB}"'))
 
+    def test_entropy_survives_the_rule_filter(self):
+        """Entropy hits must not be dropped by the active-rule filter."""
+        findings = hs.scan([(None, "a.py", 1, 'v = "' + ENTROPY_BLOB + '"')], hs.DEFAULT_RULES)
+        self.assertIn("high-entropy-string", [f.rule for f in findings])
+
     def test_hex_digest_is_not_entropy_flagged(self):
         self.assertNotIn("high-entropy-string", self.codes(f'sha = "{HEX_DIGEST}"'))
 
@@ -120,7 +125,7 @@ class TestRulesLoading(unittest.TestCase):
         return path
 
     def test_defaults_only(self):
-        self.assertEqual(len(hs.load_rules()), len(hs.RULES))
+        self.assertEqual(len(hs.load_rules()), len(hs.DEFAULT_RULES))
 
     def test_extra_rule_list_form(self):
         rules = hs.load_rules(str(self.write([{"id": "acme", "pattern": "ACME-[0-9]{4}", "severity": "high"}])))
@@ -129,6 +134,17 @@ class TestRulesLoading(unittest.TestCase):
     def test_extra_rule_object_form(self):
         rules = hs.load_rules(str(self.write({"rules": [{"id": "x", "pattern": "X", "severity": "low"}]})))
         self.assertEqual(rules[-1].id, "x")
+
+    def test_custom_rule_actually_detects(self):
+        """The audit's Blocker 2: loading a rule is not the same as matching it."""
+        rules = hs.load_rules(str(self.write(
+            [{"id": "acme", "pattern": "ACME-[0-9]{6}", "severity": "high"}]
+        )))
+        hits = hs.scan_line("ref ACME-123456 here", rules)
+        self.assertEqual([rule.id for rule, _ in hits], ["acme"])
+
+        findings = hs.scan([(None, "ref.py", 1, "ref ACME-123456 here")], rules)
+        self.assertEqual([f.rule for f in findings], ["acme"])
 
     def test_bad_severity_and_json_and_shape(self):
         for payload in (
@@ -142,6 +158,27 @@ class TestRulesLoading(unittest.TestCase):
     def test_missing_file(self):
         with self.assertRaises(hs.ScanError):
             hs.load_rules("/nonexistent/rules.json")
+
+
+class TestCustomRuleCli(unittest.TestCase):
+    def test_custom_rules_file_flags_a_commit_ready_file(self):
+        import tempfile, subprocess
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+            (repo / "ref.py").write_text("ref ACME-123456\n", encoding="utf-8")
+            rules = repo / "rules.json"
+            rules.write_text(
+                '{"rules":[{"id":"acme","pattern":"ACME-[0-9]{6}","severity":"high"}]}',
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--repo", str(repo),
+                 "--worktree", "--rules", str(rules)],
+                capture_output=True, text=True, cwd=str(ROOT), timeout=120,
+            )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("acme", result.stdout)
 
 
 class TestDiffParsing(unittest.TestCase):
