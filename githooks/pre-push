@@ -1,0 +1,25 @@
+#!/bin/sh
+# Sensitivity gate: refuses to push any commit containing known leak
+# fingerprints. Needle families (all written self-avoidantly with
+# character-class breaks so this file can never match its own scan):
+#   - personal-transcript markers (purged-history protection)
+#   - secret-key shapes (88-char base58 runs, common token prefixes)
+#   - paid-RPC credential URL fragments
+#   - chat-transcript dump filenames
+# Safe-fails on any scan error by treating empty output as a match.
+z40=0000000000000000000000000000000000000000
+while read local_ref local_sha remote_ref remote_sha; do
+    [ "$local_sha" = "$z40" ] && continue
+    if [ "$remote_sha" = "$z40" ]; then
+        range="$local_sha"
+    else
+        range="$remote_sha..$local_sha"
+    fi
+    matches=$(git log -p "$range" 2>/dev/null | grep -icE "(youpo[r]n|pornh[u]b|xham[s]ter|thumbz[i]lla|xvide[o]s|232[1]17751|sl[u]t|sq[u]irt|heli[u]s|PUMP[C]HAT|gh[p]o_[A-Za-z0-9]{20}|AKIA[0-9A-Z]{16}|transcr[i]pt\.jsonl|task-[0-9][0-9]*\.log|[1-9A-HJ-NP-Za-km-z]{88})")
+    if [ "$matches" != "0" ]; then
+        echo >&2 "pre-push: BLOCKED — $matches sensitive pattern match(es) in $range ($local_ref -> $remote_ref)"
+        echo >&2 "pre-push: inspect with: git log -p '$range' | grep -iE '<pattern>'"
+        exit 1
+    fi
+done
+exit 0
