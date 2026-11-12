@@ -1,4 +1,4 @@
-"""Tests for history_scan.
+"""Tests for git_scan.
 
 Every fake secret below is assembled at runtime (string concatenation) rather
 than written literally, so this repository passes its own scan — the same
@@ -14,10 +14,10 @@ import textwrap
 import unittest
 from pathlib import Path
 
-import history_scan as hs
+import git_scan as hs
 
 ROOT = Path(__file__).resolve().parent.parent
-SCRIPT = ROOT / "history_scan.py"
+SCRIPT = ROOT / "git_scan.py"
 
 
 # --- runtime-built fixtures (never literal in this file) --------------------
@@ -253,7 +253,7 @@ class TestScanAndRender(unittest.TestCase):
     def test_json_shape(self):
         findings = hs.scan([(None, "a.py", 3, AWS_KEY)], hs.RULES)
         payload = json.loads(hs.render_json(findings, "git history"))
-        self.assertEqual(payload["tool"], "history-scan")
+        self.assertEqual(payload["tool"], "GitScan")
         self.assertEqual(payload["summary"]["total"], 1)
         self.assertEqual(payload["summary"]["by_severity"]["high"], 1)
         self.assertEqual(payload["findings"][0]["path"], "a.py")

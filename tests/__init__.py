@@ -1,1 +1,1 @@
-"""Tests for history_scan."""
+"""Tests for GitScan."""

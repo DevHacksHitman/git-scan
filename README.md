@@ -1,4 +1,4 @@
-# history-scan
+# GitScan
 
 A **zero-dependency** secrets and sensitive-data scanner for git repositories.
 
@@ -31,17 +31,17 @@ pipeline.
 
 ```bash
 # whole history of the current repository (all branches)
-python3 history_scan.py
+python3 git_scan.py
 
 # just what you are about to commit
-python3 history_scan.py --staged
+python3 git_scan.py --staged
 
 # files on disk
-python3 history_scan.py --worktree --fail-on high
+python3 git_scan.py --worktree --fail-on high
 
 # machine-readable, and pipeline-native
-python3 history_scan.py --format json
-python3 history_scan.py --format sarif
+python3 git_scan.py --format json
+python3 git_scan.py --format sarif
 ```
 
 Example output:
@@ -85,7 +85,7 @@ Extra rules come from a JSON file:
 ## Ignoring files
 
 `node_modules`, lockfiles, build output and binary/media types are ignored by
-default. Add your own in `.history-scan-ignore` (one glob per line, `#` for
+default. Add your own in `.gitscan-ignore` (one glob per line, `#` for
 comments), or with `--exclude 'snapshots/*'`.
 
 ## Design decisions
@@ -117,7 +117,7 @@ comments), or with `--exclude 'snapshots/*'`.
   and why `--fail-on high` exists.
 - **History mode reads `git log -p --all`**, which is expensive on very large
   repositories; there is no incremental state between runs yet.
-- **No `.history-scan-ignore` in history mode by path only** — a file ignored
+- **No `.gitscan-ignore` in history mode by path only** — a file ignored
   today is still scanned in the commits where it appears, because the path
   matched is the path at that commit.
 - **It does not rotate anything.** If it finds a live credential: rotate first,

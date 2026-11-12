@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""history_scan — find secrets and sensitive data in a git repository.
+"""git_scan — find secrets and sensitive data in a git repository.
 
 Scans what actually gets leaked: the whole commit history, the staged change
 about to be committed, or the working tree. Reports credential shapes, personal
 data and high-entropy strings — and **redacts every match**, because a scanner
 that prints the secret it found has just leaked it into a CI log.
 
-    python3 history_scan.py                     # whole history of the repo
-    python3 history_scan.py --staged            # what you are about to commit
-    python3 history_scan.py --worktree          # files on disk
-    python3 history_scan.py --format json       # machine-readable
-    python3 history_scan.py --format sarif      # code-scanning pipeline format
+    python3 git_scan.py                     # whole history of the repo
+    python3 git_scan.py --staged            # what you are about to commit
+    python3 git_scan.py --worktree          # files on disk
+    python3 git_scan.py --format json       # machine-readable
+    python3 git_scan.py --format sarif      # code-scanning pipeline format
 
 Exit codes (CI-friendly): 0 = clean, 1 = findings, 2 = usage error.
 
@@ -37,8 +37,8 @@ from pathlib import Path
 from typing import Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
 
 VERSION = "0.1.0"
-TOOL = "history-scan"
-IGNORE_FILE = ".history-scan-ignore"
+TOOL = "GitScan"
+IGNORE_FILE = ".gitscan-ignore"
 
 SEVERITY_ORDER = {"low": 0, "medium": 1, "high": 2}
 
@@ -423,7 +423,7 @@ def render_sarif(findings: Sequence[Finding], rules: Sequence[Rule]) -> str:
 # ---------------------------------------------------------------------------
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="history_scan.py",
+        prog="git_scan.py",
         description="Scan a git repository for secrets and sensitive data (zero dependencies).",
     )
     parser.add_argument("--repo", default=".", help="repository path (default: current directory)")
